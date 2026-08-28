@@ -1,0 +1,69 @@
+# Monitor_TdxUR — Data Logger de Temperatura e Umidade
+
+**Versão 0.1.0**
+
+Firmware em **ESP-IDF (C)** para um data logger usado em **ensaio de infiltração de água em gabinete**. A detecção de água se dá pela subida da **umidade absoluta / ponto de orvalho (Td)** do ar interno — grandezas que, ao contrário da umidade relativa, não dependem da temperatura.
+
+## Hardware
+
+- **Placa:** Waveshare **ESP32-P4-WIFI6-Touch-LCD-7B** (ESP32-P4 + display DSI 7" 1024×600 com touch capacitivo).
+- **Sensor:** Adafruit **SHT40** (I²C `0x44`), ligado ao conector I²C da placa (PH2.0, `SDA=GPIO7 / SCL=GPIO8`) — **mesmo barramento do touch** (compartilhado, driver `i2c_master` é thread-safe).
+- **Armazenamento:** microSD (SDMMC 4-bit) com fallback para LittleFS na flash interna.
+- Sem Wi-Fi e sem BLE. Alimentação pela USB-C (bancada) ou LiPo.
+
+## Funcionalidades
+
+- Leitura periódica do SHT40; cálculo de **ponto de orvalho (Magnus)** e **umidade absoluta (g/m³)**.
+- Log em **CSV** (um arquivo por ensaio), com `fflush`+`fsync` a cada amostra (seguro contra queda de energia). Fallback automático para LittleFS quando não há cartão.
+- **GUI (LVGL 9.3)** com 3 telas:
+  - **Launcher:** escolha entre *Coletar dados* e *Visualizar teste*.
+  - **Coleta:** cards ao vivo (T, UR, Td, AH), gráfico Td/UR, botão *Marcar evento* (registra o instante exato de cada gota), botão *Iniciar/parar log*, e **baseline + alarme de infiltração** (o card do Td fica vermelho quando o Td sobe mais que o limiar acima da referência).
+  - **Visualizar:** lista os `log_*.csv` da mídia e desenha o gráfico do ensaio escolhido (Td autoescalado + UR) com marcas de evento.
+
+## Formato do CSV
+
+```
+seg_boot;hhmmss;temp_C;ur_pct;td_C;ah_gm3;evento
+```
+Separador `;`, decimal `.`. `evento=1` marca o instante de uma ação (ex.: gota d'água).
+
+## Estrutura
+
+```
+main/            app_main, config central (config_projeto.h), tasks e orquestracao
+components/
+  sht4x/         driver do sensor (API i2c_master nova, CRC-8)
+  psicrometria/  ponto de orvalho (Magnus) + umidade absoluta
+  registro/      log CSV no SD + fallback LittleFS (abrir/fechar por ensaio, listar)
+  ui/            interface LVGL (launcher, coleta, visualizador)
+partitions.csv   factory 6 MB + particao 'littlefs' 2 MB
+sdkconfig.defaults  PSRAM, LVGL, particao custom
+```
+
+Ajustes ficam centralizados em [`main/config_projeto.h`](main/config_projeto.h): intervalo de amostragem, endereço do sensor, janela de baseline e limiar do alarme.
+
+## Como compilar e gravar
+
+Requer **ESP-IDF v5.4** e terminal **PowerShell**.
+
+```powershell
+. .\idf_env.ps1              # ativa o ambiente (dot-source; ajuste os caminhos do seu PC)
+idf.py set-target esp32p4    # so na 1a vez
+idf.py -p COM9 flash monitor # COM conforme a porta do seu PC
+```
+
+### ⚠️ Patch obrigatório no BSP (após baixar os componentes)
+
+Os `managed_components/` não são versionados (são baixados a partir de `dependencies.lock`). O BSP da Waveshare (`waveshare__esp32_p4_wifi6_touch_lcd_7b`) usa `memcpy` **sem incluir `<string.h>`**, o que quebra o build. Após o primeiro download dos componentes, adicione no topo de
+`managed_components/waveshare__esp32_p4_wifi6_touch_lcd_7b/esp32_p4_wifi6_touch_lcd_7b.c`:
+
+```c
+#include <string.h>
+```
+
+Não apague o `dependencies.lock` depois disso, senão o gerenciador re-baixa e desfaz o patch.
+
+## Notas
+
+- **Modo bancada:** para testes rápidos, `INTERVALO_AMOSTRAGEM_S` e `BASELINE_SEGUNDOS` podem ser reduzidos (ver comentários no `config_projeto.h`); os valores reais do ensaio são **15 s** e **180 s**.
+- As fontes Montserrat padrão do LVGL não trazem acentos do português, por isso os textos da interface estão sem acento.

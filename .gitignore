@@ -1,0 +1,19 @@
+# ---- ESP-IDF ----
+# Saida de build (gerada)
+/build/
+
+# Config gerada a partir de sdkconfig.defaults (nao versionar; e recriada no build)
+/sdkconfig
+/sdkconfig.old
+
+# Componentes baixados pelo gerenciador (reproduziveis a partir de dependencies.lock).
+# ATENCAO: apos baixar, reaplicar o fix do <string.h> no BSP (ver README.md).
+/managed_components/
+
+# ---- Diversos ----
+*.pyc
+__pycache__/
+.vscode/
+
+# Notas/prompts pessoais (nao versionar)
+prompts_umidade_temp.txt

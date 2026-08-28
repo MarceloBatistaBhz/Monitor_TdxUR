@@ -1,0 +1,7 @@
+## Dependencias externas do app (Marco 3: display + LVGL)
+dependencies:
+  lvgl/lvgl:
+    version: "9.3.*"                       # esp_lvgl_port precisa do 9.3+ (RGB565_SWAPPED)
+    public: true
+  waveshare/esp32_p4_wifi6_touch_lcd_7b:
+    version: "2.0.0"                        # BSP oficial da placa (display EK79007 + touch GT911 + SD)

@@ -1,0 +1,3 @@
+## Dependencias externas do componente 'registro'
+dependencies:
+  joltwallet/littlefs: "^1.14"
