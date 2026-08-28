@@ -1,6 +1,6 @@
 # Monitor_TdxUR — Data Logger de Temperatura e Umidade
 
-**Versão 0.1.0**
+**Versão 0.1.1**
 
 Firmware em **ESP-IDF (C)** para um data logger usado em **ensaio de infiltração de água em gabinete**. A detecção de água se dá pela subida da **umidade absoluta / ponto de orvalho (Td)** do ar interno — grandezas que, ao contrário da umidade relativa, não dependem da temperatura.
 
@@ -67,3 +67,8 @@ Não apague o `dependencies.lock` depois disso, senão o gerenciador re-baixa e 
 
 - **Modo bancada:** para testes rápidos, `INTERVALO_AMOSTRAGEM_S` e `BASELINE_SEGUNDOS` podem ser reduzidos (ver comentários no `config_projeto.h`); os valores reais do ensaio são **15 s** e **180 s**.
 - As fontes Montserrat padrão do LVGL não trazem acentos do português, por isso os textos da interface estão sem acento.
+
+## Histórico
+
+- **v0.1.1** — Tela de coleta: linhas **selecionáveis** de Temperatura (vermelho) e Umid. absoluta (amarelo) via *ticks* nos cards (só visualização; não afetam o log). Cada card recebe o **fundo na cor da sua linha**, com texto de contraste; alarme do Td em vermelho mantido.
+- **v0.1.0** — Versão inicial: aquisição SHT40, cálculo de Td/umidade absoluta, log CSV no SD com fallback LittleFS, GUI (launcher, coleta com baseline/alarme) e visualizador de ensaios.

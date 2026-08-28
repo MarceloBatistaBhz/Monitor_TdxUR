@@ -15,8 +15,10 @@
 #define COR_VERDE_BTN  0x1e8a4c
 #define COR_AZUL_BTN   0x2f6fb0
 #define COR_SUAVE      0x9aa4b0
-#define COR_TD_LINHA   0x35d07f
-#define COR_UR_LINHA   0x4a90d9
+#define COR_TD_LINHA   0x35d07f   /* verde: Td (fixa) */
+#define COR_UR_LINHA   0x4a90d9   /* azul: Umid. relativa (fixa) */
+#define COR_TEMP_LINHA 0xe74c3c   /* vermelho: temperatura (tick, so visualizacao) */
+#define COR_AH_LINHA   0xf1c40f   /* amarelo: umidade absoluta (tick, so visualizacao) */
 
 #define GRAFICO_PONTOS 720
 #define MAX_LOGS       64
@@ -42,7 +44,8 @@ static bool      s_alerta;
 static lv_obj_t *s_val_temp, *s_val_ur, *s_val_td, *s_val_ah, *s_card_td;
 static lv_obj_t *s_chart, *s_lbl_rec, *s_lbl_baseline, *s_lbl_eventos, *s_lbl_alerta;
 static lv_obj_t *s_btn_log, *s_btn_log_lbl;
-static lv_chart_series_t *s_serie_td, *s_serie_ur;
+static lv_chart_series_t *s_serie_td, *s_serie_ur, *s_serie_temp, *s_serie_ah;
+static bool s_mostra_temp, s_mostra_ah;   /* ticks: Temp/AH (Td e UR sao fixas e vao pro log) */
 
 /* --- Widgets do visualizador --- */
 static lv_obj_t *s_visu_lista, *s_visu_area;
@@ -67,11 +70,18 @@ static lv_obj_t *cria_botao(lv_obj_t *parent, const char *txt, uint32_t cor,
 }
 
 static lv_obj_t *cria_card(lv_obj_t *parent, const char *titulo, const char *unidade,
-                           lv_obj_t **out_valor, bool destaque)
+                           lv_obj_t **out_valor, uint32_t cor_fundo)
 {
+    /* Texto escuro em fundo claro (ex.: amarelo), branco em fundo escuro (contraste) */
+    uint32_t lum = (((cor_fundo >> 16) & 0xFF) * 299 +
+                    ((cor_fundo >> 8)  & 0xFF) * 587 +
+                    ( cor_fundo        & 0xFF) * 114) / 1000;
+    lv_color_t txt      = (lum > 160) ? lv_color_hex(0x101820) : lv_color_white();
+    lv_color_t txt_unid = (lum > 160) ? lv_color_hex(0x303840) : lv_color_hex(COR_SUAVE);
+
     lv_obj_t *card = lv_obj_create(parent);
     lv_obj_set_size(card, 232, 148);
-    lv_obj_set_style_bg_color(card, lv_color_hex(destaque ? COR_DESTAQUE : COR_CARTAO), 0);
+    lv_obj_set_style_bg_color(card, lv_color_hex(cor_fundo), 0);
     lv_obj_set_style_border_width(card, 0, 0);
     lv_obj_set_style_radius(card, 16, 0);
     lv_obj_set_style_pad_all(card, 6, 0);
@@ -82,18 +92,18 @@ static lv_obj_t *cria_card(lv_obj_t *parent, const char *titulo, const char *uni
     lv_obj_t *lt = lv_label_create(card);
     lv_label_set_text(lt, titulo);
     lv_obj_set_style_text_font(lt, &lv_font_montserrat_22, 0);
-    lv_obj_set_style_text_color(lt, lv_color_white(), 0);
+    lv_obj_set_style_text_color(lt, txt, 0);
 
     lv_obj_t *lv = lv_label_create(card);
     lv_label_set_text(lv, "--");
     lv_obj_set_style_text_font(lv, &lv_font_montserrat_48, 0);
-    lv_obj_set_style_text_color(lv, lv_color_white(), 0);
+    lv_obj_set_style_text_color(lv, txt, 0);
     *out_valor = lv;
 
     lv_obj_t *lu = lv_label_create(card);
     lv_label_set_text(lu, unidade);
     lv_obj_set_style_text_font(lu, &lv_font_montserrat_18, 0);
-    lv_obj_set_style_text_color(lu, lv_color_hex(COR_SUAVE), 0);
+    lv_obj_set_style_text_color(lu, txt_unid, 0);
     return card;
 }
 
@@ -285,8 +295,15 @@ static void timer_cb(lv_timer_t *t)
         snprintf(buf, sizeof buf, "%.1f", a.ur_pct); lv_label_set_text(s_val_ur, buf);
         snprintf(buf, sizeof buf, "%.1f", a.td_c);   lv_label_set_text(s_val_td, buf);
         snprintf(buf, sizeof buf, "%.1f", a.ah_gm3); lv_label_set_text(s_val_ah, buf);
+        /* Td e UR sempre (fixas); Temp e AH so quando o tick do card estiver ligado.
+         * Plotamos NONE quando desligado para as series ficarem alinhadas no tempo
+         * (a parte ja desenhada da linha continua rolando normalmente). */
         lv_chart_set_next_value(s_chart, s_serie_td, (int32_t)(a.td_c   * 10.0f));
         lv_chart_set_next_value(s_chart, s_serie_ur, (int32_t)(a.ur_pct * 10.0f));
+        lv_chart_set_next_value(s_chart, s_serie_temp,
+                                s_mostra_temp ? (int32_t)(a.temp_c * 10.0f) : LV_CHART_POINT_NONE);
+        lv_chart_set_next_value(s_chart, s_serie_ah,
+                                s_mostra_ah ? (int32_t)(a.ah_gm3 * 10.0f) : LV_CHART_POINT_NONE);
     }
     if (evt_d) {
         snprintf(buf, sizeof buf, "Eventos: %lu", (unsigned long)evt);
@@ -320,7 +337,7 @@ static void timer_cb(lv_timer_t *t)
     static int last_alerta = -1;
     if ((int)alerta != last_alerta) {
         last_alerta = alerta;
-        lv_obj_set_style_bg_color(s_card_td, lv_color_hex(alerta ? COR_ALERTA : COR_DESTAQUE), 0);
+        lv_obj_set_style_bg_color(s_card_td, lv_color_hex(alerta ? COR_ALERTA : COR_TD_LINHA), 0);
         if (alerta) lv_obj_remove_flag(s_lbl_alerta, LV_OBJ_FLAG_HIDDEN);
         else        lv_obj_add_flag(s_lbl_alerta, LV_OBJ_FLAG_HIDDEN);
     }
@@ -333,6 +350,24 @@ static void btn_evento_cb(lv_event_t *e)
 static void btn_log_cb(lv_event_t *e)
 {
     if (s_cb && s_cb->on_toggle_log) s_cb->on_toggle_log();
+}
+
+/* Ticks nos cards: ligam/desligam a plotagem da Temp e da UR (so visualizacao) */
+static void tick_temp_cb(lv_event_t *e)
+{
+    s_mostra_temp = lv_obj_has_state(lv_event_get_target(e), LV_STATE_CHECKED);
+}
+static void tick_ah_cb(lv_event_t *e)
+{
+    s_mostra_ah = lv_obj_has_state(lv_event_get_target(e), LV_STATE_CHECKED);
+}
+static void cria_tick(lv_obj_t *card, lv_event_cb_t cb)
+{
+    lv_obj_t *chk = lv_checkbox_create(card);
+    lv_checkbox_set_text(chk, "");                       /* so o quadradinho, no canto */
+    lv_obj_add_flag(chk, LV_OBJ_FLAG_IGNORE_LAYOUT);     /* fora do flex do card */
+    lv_obj_align(chk, LV_ALIGN_BOTTOM_RIGHT, -6, -6);
+    lv_obj_add_event_cb(chk, cb, LV_EVENT_VALUE_CHANGED, NULL);
 }
 
 static void monta_coleta(lv_obj_t *scr)
@@ -363,10 +398,12 @@ static void monta_coleta(lv_obj_t *scr)
     lv_obj_remove_flag(linha, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_set_flex_flow(linha, LV_FLEX_FLOW_ROW);
     lv_obj_set_flex_align(linha, LV_FLEX_ALIGN_SPACE_EVENLY, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
-    cria_card(linha, "Temperatura", "C",    &s_val_temp, false);
-    cria_card(linha, "Umid. rel.",  "%",    &s_val_ur,   false);
-    s_card_td = cria_card(linha, "Pto orvalho", "C", &s_val_td, true);
-    cria_card(linha, "Umid. abs.",  "g/m3", &s_val_ah,   false);
+    lv_obj_t *card_temp = cria_card(linha, "Temperatura", "C",    &s_val_temp, COR_TEMP_LINHA);
+    cria_card(linha, "Umid. rel.",  "%",    &s_val_ur,   COR_UR_LINHA);
+    s_card_td = cria_card(linha, "Pto orvalho", "C", &s_val_td, COR_TD_LINHA);
+    lv_obj_t *card_ah = cria_card(linha, "Umid. abs.",  "g/m3", &s_val_ah, COR_AH_LINHA);
+    cria_tick(card_temp, tick_temp_cb);   /* tick: mostrar Temperatura (vermelho) - so visualizacao */
+    cria_tick(card_ah,   tick_ah_cb);     /* tick: mostrar Umid. absoluta (magenta) - so visualizacao */
 
     s_chart = lv_chart_create(scr);
     lv_obj_set_size(s_chart, 900, 244);
@@ -383,19 +420,26 @@ static void monta_coleta(lv_obj_t *scr)
     lv_chart_set_div_line_count(s_chart, 5, 0);
     lv_obj_set_style_width(s_chart, 0, LV_PART_INDICATOR);
     lv_obj_set_style_height(s_chart, 0, LV_PART_INDICATOR);
-    s_serie_td = lv_chart_add_series(s_chart, lv_color_hex(COR_TD_LINHA), LV_CHART_AXIS_PRIMARY_Y);
-    s_serie_ur = lv_chart_add_series(s_chart, lv_color_hex(COR_UR_LINHA), LV_CHART_AXIS_SECONDARY_Y);
-    lv_chart_set_all_value(s_chart, s_serie_td, LV_CHART_POINT_NONE);
-    lv_chart_set_all_value(s_chart, s_serie_ur, LV_CHART_POINT_NONE);
+    s_serie_td   = lv_chart_add_series(s_chart, lv_color_hex(COR_TD_LINHA),   LV_CHART_AXIS_PRIMARY_Y);
+    s_serie_ur   = lv_chart_add_series(s_chart, lv_color_hex(COR_UR_LINHA),   LV_CHART_AXIS_SECONDARY_Y);
+    s_serie_temp = lv_chart_add_series(s_chart, lv_color_hex(COR_TEMP_LINHA), LV_CHART_AXIS_PRIMARY_Y);
+    s_serie_ah   = lv_chart_add_series(s_chart, lv_color_hex(COR_AH_LINHA),   LV_CHART_AXIS_PRIMARY_Y);
+    lv_chart_set_all_value(s_chart, s_serie_td,   LV_CHART_POINT_NONE);
+    lv_chart_set_all_value(s_chart, s_serie_ur,   LV_CHART_POINT_NONE);
+    lv_chart_set_all_value(s_chart, s_serie_temp, LV_CHART_POINT_NONE);
+    lv_chart_set_all_value(s_chart, s_serie_ah,   LV_CHART_POINT_NONE);
 
-    rotulo_eixo(s_chart, "Td (C)", COR_TD_LINHA, &lv_font_montserrat_18, LV_ALIGN_OUT_TOP_LEFT,   6, -2);
-    rotulo_eixo(s_chart, "40",     COR_TD_LINHA, &lv_font_montserrat_14, LV_ALIGN_OUT_LEFT_TOP,   -4,  2);
-    rotulo_eixo(s_chart, "20",     COR_TD_LINHA, &lv_font_montserrat_14, LV_ALIGN_OUT_LEFT_MID,   -4,  0);
-    rotulo_eixo(s_chart, "0",      COR_TD_LINHA, &lv_font_montserrat_14, LV_ALIGN_OUT_LEFT_BOTTOM,-4, -2);
-    rotulo_eixo(s_chart, "UR (%)", COR_UR_LINHA, &lv_font_montserrat_18, LV_ALIGN_OUT_TOP_RIGHT,  -6, -2);
-    rotulo_eixo(s_chart, "100",    COR_UR_LINHA, &lv_font_montserrat_14, LV_ALIGN_OUT_RIGHT_TOP,    4,  2);
-    rotulo_eixo(s_chart, "50",     COR_UR_LINHA, &lv_font_montserrat_14, LV_ALIGN_OUT_RIGHT_MID,    4,  0);
-    rotulo_eixo(s_chart, "0",      COR_UR_LINHA, &lv_font_montserrat_14, LV_ALIGN_OUT_RIGHT_BOTTOM, 4, -2);
+    /* Legendas eixo esq. (0-40): Td verde, Temp vermelho, AH magenta.  Eixo dir. (0-100): UR azul */
+    rotulo_eixo(s_chart, "Td",   COR_TD_LINHA,   &lv_font_montserrat_18, LV_ALIGN_OUT_TOP_LEFT,    6, -2);
+    rotulo_eixo(s_chart, "Temp", COR_TEMP_LINHA, &lv_font_montserrat_18, LV_ALIGN_OUT_TOP_LEFT,   54, -2);
+    rotulo_eixo(s_chart, "AH",   COR_AH_LINHA,   &lv_font_montserrat_18, LV_ALIGN_OUT_TOP_LEFT,  128, -2);
+    rotulo_eixo(s_chart, "40",   0xE6E6E6,       &lv_font_montserrat_14, LV_ALIGN_OUT_LEFT_TOP,   -4,  2);
+    rotulo_eixo(s_chart, "20",   0xE6E6E6,       &lv_font_montserrat_14, LV_ALIGN_OUT_LEFT_MID,   -4,  0);
+    rotulo_eixo(s_chart, "0",    0xE6E6E6,       &lv_font_montserrat_14, LV_ALIGN_OUT_LEFT_BOTTOM,-4, -2);
+    rotulo_eixo(s_chart, "UR",   COR_UR_LINHA,   &lv_font_montserrat_18, LV_ALIGN_OUT_TOP_RIGHT,  -6, -2);
+    rotulo_eixo(s_chart, "100",  COR_UR_LINHA,   &lv_font_montserrat_14, LV_ALIGN_OUT_RIGHT_TOP,    4,  2);
+    rotulo_eixo(s_chart, "50",   COR_UR_LINHA,   &lv_font_montserrat_14, LV_ALIGN_OUT_RIGHT_MID,    4,  0);
+    rotulo_eixo(s_chart, "0",    COR_UR_LINHA,   &lv_font_montserrat_14, LV_ALIGN_OUT_RIGHT_BOTTOM, 4, -2);
 
     s_lbl_baseline = lv_label_create(scr);
     lv_label_set_text(s_lbl_baseline, "Baseline: --");
@@ -439,7 +483,7 @@ static void monta_launcher(lv_obj_t *scr)
     lv_obj_set_style_bg_color(scr, lv_color_hex(COR_FUNDO), LV_PART_MAIN);
 
     lv_obj_t *t1 = lv_label_create(scr);
-    lv_label_set_text(t1, "Data Logger - Ensaio de Infiltracao  v0.1.0");
+    lv_label_set_text(t1, "Data Logger - Ensaio de Infiltracao  v0.1.1");
     lv_obj_set_style_text_font(t1, &lv_font_montserrat_26, 0);
     lv_obj_set_style_text_color(t1, lv_color_white(), 0);
     lv_obj_align(t1, LV_ALIGN_TOP_MID, 0, 90);
