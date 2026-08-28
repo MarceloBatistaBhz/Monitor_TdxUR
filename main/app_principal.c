@@ -78,6 +78,7 @@ static void task_aquisicao(void *arg)
 
             bool logando, pronto;
             float base_td;
+            int base_restante = 0;
             xSemaphoreTake(s_mtx, portMAX_DELAY);
             s_ultima = a;
             s_tem_ultima = true;
@@ -91,13 +92,17 @@ static void task_aquisicao(void *arg)
                     s_base_ativo = false;
                 }
             }
+            if (s_base_ativo) {                                /* ainda capturando: quanto falta */
+                base_restante = (int)(BASELINE_SEGUNDOS - (a.seg_boot - s_base_t0));
+                if (base_restante < 0) base_restante = 0;
+            }
             pronto = s_base_pronto;
             base_td = s_base_td;
             xSemaphoreGive(s_mtx);
 
             ui_nova_amostra(&a);
             if (logando) {
-                ui_set_baseline(pronto, base_td);
+                ui_set_baseline(pronto, base_td, base_restante);
                 ui_set_alerta(pronto && (a.td_c > base_td + LIMIAR_ALERTA_C));
             }
             if (s_fila != NULL && xQueueSend(s_fila, &a, 0) != pdTRUE) {
@@ -151,7 +156,7 @@ static void app_toggle_log(void)
         s_base_pronto = false;
         xSemaphoreGive(s_mtx);
         ui_set_gravando(false, NULL);
-        ui_set_baseline(false, 0.0f);
+        ui_set_baseline(false, 0.0f, 0);
         ui_set_alerta(false);
     } else {
         char nome[40];
@@ -165,7 +170,7 @@ static void app_toggle_log(void)
             s_base_t0 = esp_timer_get_time() / 1000000;
             xSemaphoreGive(s_mtx);
             ui_set_gravando(true, nome);
-            ui_set_baseline(false, 0.0f);
+            ui_set_baseline(false, 0.0f, BASELINE_SEGUNDOS);
             ui_set_alerta(false);
         } else {
             ESP_LOGE(TAG, "Nao consegui iniciar o log (sem cartao/midia?)");

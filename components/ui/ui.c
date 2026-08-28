@@ -38,6 +38,7 @@ static bool      s_grav;
 static char      s_grav_nome[40];
 static bool      s_base_pronto;
 static float     s_base_td;
+static int       s_base_restante;   /* segundos que faltam p/ capturar o baseline */
 static bool      s_alerta;
 
 /* --- Widgets da coleta --- */
@@ -295,12 +296,13 @@ static void timer_cb(lv_timer_t *t)
     bool nova, evt_d, grav, bpronto, alerta;
     uint32_t evt;
     float btd;
+    int brest;
     char nome[40];
     xSemaphoreTake(s_mtx, portMAX_DELAY);
     a = s_amostra;     nova = s_nova;         s_nova = false;
     evt_d = s_evt_dirty; s_evt_dirty = false;  evt = s_evt_count;
     grav = s_grav;     strcpy(nome, s_grav_nome);
-    bpronto = s_base_pronto; btd = s_base_td;
+    bpronto = s_base_pronto; btd = s_base_td; brest = s_base_restante;
     alerta = s_alerta;
     xSemaphoreGive(s_mtx);
 
@@ -327,7 +329,15 @@ static void timer_cb(lv_timer_t *t)
     if (!grav) {
         lv_label_set_text(s_lbl_baseline, "Baseline: --");
     } else if (!bpronto) {
-        lv_label_set_text(s_lbl_baseline, "Baseline: capturando...");
+        /* Contagem regressiva suave: o app manda "brest" a cada amostra (a cada 15 s);
+         * entre amostras o timer (400 ms) decrementa a partir da ultima ancora. */
+        static int      anc_rest = -1;
+        static uint32_t anc_tick = 0;
+        if (brest != anc_rest) { anc_rest = brest; anc_tick = lv_tick_get(); }
+        int mostra = anc_rest - (int)(lv_tick_elaps(anc_tick) / 1000);
+        if (mostra < 0) mostra = 0;
+        snprintf(buf, sizeof buf, "Baseline: capturando... %d s", mostra);
+        lv_label_set_text(s_lbl_baseline, buf);
     } else {
         snprintf(buf, sizeof buf, "Baseline Td: %.1f C", btd);
         lv_label_set_text(s_lbl_baseline, buf);
@@ -485,7 +495,7 @@ static void monta_coleta(lv_obj_t *scr)
     lv_label_set_text(s_lbl_baseline, "Baseline: --");
     lv_obj_set_style_text_font(s_lbl_baseline, &lv_font_montserrat_18, 0);
     lv_obj_set_style_text_color(s_lbl_baseline, lv_color_white(), 0);
-    lv_obj_align(s_lbl_baseline, LV_ALIGN_TOP_MID, 0, 470);
+    lv_obj_align(s_lbl_baseline, LV_ALIGN_TOP_MID, -33, 470);   /* ~5 mm p/ a esquerda */
 
     s_lbl_alerta = lv_label_create(scr);
     lv_label_set_text(s_lbl_alerta, LV_SYMBOL_WARNING " POSSIVEL INFILTRACAO (Td subiu > limiar)");
@@ -526,7 +536,7 @@ static void monta_launcher(lv_obj_t *scr)
     lv_obj_set_style_bg_color(scr, lv_color_hex(COR_FUNDO), LV_PART_MAIN);
 
     lv_obj_t *t1 = lv_label_create(scr);
-    lv_label_set_text(t1, "Data Logger - Ensaio de Infiltracao  v0.1.2");
+    lv_label_set_text(t1, "Data Logger - Ensaio de Infiltracao  v0.1.3");
     lv_obj_set_style_text_font(t1, &lv_font_montserrat_26, 0);
     lv_obj_set_style_text_color(t1, lv_color_white(), 0);
     lv_obj_align(t1, LV_ALIGN_TOP_MID, 0, 90);
@@ -631,12 +641,13 @@ void ui_set_gravando(bool gravando, const char *nome)
     xSemaphoreGive(s_mtx);
 }
 
-void ui_set_baseline(bool pronto, float td_baseline)
+void ui_set_baseline(bool pronto, float td_baseline, int restante_s)
 {
     if (s_mtx == NULL) return;
     xSemaphoreTake(s_mtx, portMAX_DELAY);
     s_base_pronto = pronto;
     s_base_td = td_baseline;
+    s_base_restante = restante_s;
     xSemaphoreGive(s_mtx);
 }
 

@@ -33,8 +33,9 @@ void ui_evento_marcado(void);
 /** @brief Estado da gravacao: liga/desliga o indicador e troca o botao. nome pode ser NULL. */
 void ui_set_gravando(bool gravando, const char *nome);
 
-/** @brief Baseline: pronto=false mostra "capturando"; pronto=true mostra o valor. */
-void ui_set_baseline(bool pronto, float td_baseline);
+/** @brief Baseline: pronto=false mostra "capturando... N s" (contagem regressiva,
+ *         restante_s = segundos que faltam); pronto=true mostra o valor. */
+void ui_set_baseline(bool pronto, float td_baseline, int restante_s);
 
 /** @brief Alerta de infiltracao: destaca o card do Td em vermelho e mostra o aviso. */
 void ui_set_alerta(bool alerta);

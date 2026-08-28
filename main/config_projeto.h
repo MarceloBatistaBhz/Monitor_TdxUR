@@ -17,7 +17,7 @@
 /* ============================================================
  * Aquisicao
  * ============================================================ */
-#define INTERVALO_AMOSTRAGEM_S   2             /* MODO BANCADA (valor real do ensaio = 15) */
+#define INTERVALO_AMOSTRAGEM_S   15            /* valor real do ensaio */
 /* Dica de bancada: baixe para 2 ou 3 s enquanto testa, para ver leituras rapido. */
 
 /* ============================================================
@@ -42,5 +42,5 @@
  * Ao iniciar o log, captura o Td medio dos primeiros minutos como referencia.
  * Depois, alerta quando o Td atual subir mais que o limiar acima do baseline.
  * ============================================================ */
-#define BASELINE_SEGUNDOS     20               /* MODO BANCADA (valor real do ensaio = 180 / 3 min) */
+#define BASELINE_SEGUNDOS     180              /* 3 min - valor real do ensaio (modo bancada: baixe p/ ~20 s) */
 #define LIMIAR_ALERTA_C       1.5f             /* alerta: Td subiu mais que isso acima do baseline */
