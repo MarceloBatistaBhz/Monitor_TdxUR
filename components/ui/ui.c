@@ -42,8 +42,9 @@ static bool      s_alerta;
 
 /* --- Widgets da coleta --- */
 static lv_obj_t *s_val_temp, *s_val_ur, *s_val_td, *s_val_ah, *s_card_td;
-static lv_obj_t *s_chart, *s_lbl_rec, *s_lbl_baseline, *s_lbl_eventos, *s_lbl_alerta;
+static lv_obj_t *s_chart, *s_lbl_rec, *s_lbl_baseline, *s_lbl_eventos, *s_lbl_alerta, *s_lbl_titulo;
 static lv_obj_t *s_btn_log, *s_btn_log_lbl;
+static lv_timer_t *s_blink_alerta;        /* pisca o texto de alerta enquanto Td excede */
 static lv_chart_series_t *s_serie_td, *s_serie_ur, *s_serie_temp, *s_serie_ah;
 static bool s_mostra_temp, s_mostra_ah;   /* ticks: Temp/AH (Td e UR sao fixas e vao pro log) */
 
@@ -274,6 +275,20 @@ static void nav_visualizar(lv_event_t *e)
 
 /* =================== tela de coleta =================== */
 
+/* Pisca o texto de alerta a ~1 Hz: 0,7 s aceso + 0,3 s apagado. Roda so enquanto o
+ * timer estiver ativo (o timer_cb pausa/retoma conforme o estado de alerta). */
+static void alerta_blink_cb(lv_timer_t *t)
+{
+    bool aceso = !lv_obj_has_flag(s_lbl_alerta, LV_OBJ_FLAG_HIDDEN);
+    if (aceso) {
+        lv_obj_add_flag(s_lbl_alerta, LV_OBJ_FLAG_HIDDEN);    /* apaga */
+        lv_timer_set_period(t, 300);                          /* 0,3 s apagado */
+    } else {
+        lv_obj_remove_flag(s_lbl_alerta, LV_OBJ_FLAG_HIDDEN); /* acende */
+        lv_timer_set_period(t, 700);                          /* 0,7 s aceso */
+    }
+}
+
 static void timer_cb(lv_timer_t *t)
 {
     amostra_t a;
@@ -321,9 +336,16 @@ static void timer_cb(lv_timer_t *t)
     static int last_grav = -1;
     if ((int)grav != last_grav) {
         last_grav = grav;
+        lv_label_set_text(s_lbl_titulo, grav ? "Coletando os dados" : "Mostrando os dados online");
         lv_label_set_text(s_btn_log_lbl, grav ? "Parar log" : "Iniciar log");
         lv_obj_set_style_bg_color(s_btn_log, lv_color_hex(grav ? COR_ALERTA : COR_VERDE_BTN), 0);
         if (grav) {
+            /* Novo ensaio: limpa o grafico de acompanhamento (apaga as 4 linhas) */
+            lv_chart_set_all_value(s_chart, s_serie_td,   LV_CHART_POINT_NONE);
+            lv_chart_set_all_value(s_chart, s_serie_ur,   LV_CHART_POINT_NONE);
+            lv_chart_set_all_value(s_chart, s_serie_temp, LV_CHART_POINT_NONE);
+            lv_chart_set_all_value(s_chart, s_serie_ah,   LV_CHART_POINT_NONE);
+            lv_chart_refresh(s_chart);
             const char *bn = strrchr(nome, '/');
             snprintf(buf, sizeof buf, LV_SYMBOL_SAVE " GRAVANDO  %s", bn ? bn + 1 : nome);
             lv_label_set_text(s_lbl_rec, buf);
@@ -338,8 +360,17 @@ static void timer_cb(lv_timer_t *t)
     if ((int)alerta != last_alerta) {
         last_alerta = alerta;
         lv_obj_set_style_bg_color(s_card_td, lv_color_hex(alerta ? COR_ALERTA : COR_TD_LINHA), 0);
-        if (alerta) lv_obj_remove_flag(s_lbl_alerta, LV_OBJ_FLAG_HIDDEN);
-        else        lv_obj_add_flag(s_lbl_alerta, LV_OBJ_FLAG_HIDDEN);
+        if (alerta) {
+            lv_obj_remove_flag(s_lbl_alerta, LV_OBJ_FLAG_HIDDEN);   /* comeca aceso */
+            if (s_blink_alerta) {
+                lv_timer_set_period(s_blink_alerta, 700);
+                lv_timer_reset(s_blink_alerta);                     /* recomeca a contagem do 0,7 s */
+                lv_timer_resume(s_blink_alerta);
+            }
+        } else {
+            if (s_blink_alerta) lv_timer_pause(s_blink_alerta);
+            lv_obj_add_flag(s_lbl_alerta, LV_OBJ_FLAG_HIDDEN);      /* apaga de vez */
+        }
     }
 }
 
@@ -377,11 +408,11 @@ static void monta_coleta(lv_obj_t *scr)
     lv_obj_t *btn_menu = cria_botao(scr, LV_SYMBOL_LEFT " Menu", COR_CARTAO, 120, 40, nav_menu, NULL);
     lv_obj_align(btn_menu, LV_ALIGN_TOP_LEFT, 16, 8);
 
-    lv_obj_t *titulo = lv_label_create(scr);
-    lv_label_set_text(titulo, "Coletando dados");
-    lv_obj_set_style_text_font(titulo, &lv_font_montserrat_26, 0);
-    lv_obj_set_style_text_color(titulo, lv_color_white(), 0);
-    lv_obj_align(titulo, LV_ALIGN_TOP_LEFT, 156, 12);
+    s_lbl_titulo = lv_label_create(scr);
+    lv_label_set_text(s_lbl_titulo, "Mostrando os dados online");   /* vira "Coletando os dados" enquanto grava */
+    lv_obj_set_style_text_font(s_lbl_titulo, &lv_font_montserrat_26, 0);
+    lv_obj_set_style_text_color(s_lbl_titulo, lv_color_white(), 0);
+    lv_obj_align(s_lbl_titulo, LV_ALIGN_TOP_LEFT, 156, 12);
 
     s_lbl_rec = lv_label_create(scr);
     lv_label_set_text(s_lbl_rec, "parado");
@@ -418,6 +449,12 @@ static void monta_coleta(lv_obj_t *scr)
     lv_chart_set_range(s_chart, LV_CHART_AXIS_PRIMARY_Y,   0, 400);
     lv_chart_set_range(s_chart, LV_CHART_AXIS_SECONDARY_Y, 0, 1000);
     lv_chart_set_div_line_count(s_chart, 5, 0);
+    /* Grade discreta e pontilhada (nao confunde com as linhas das grandezas) */
+    lv_obj_set_style_line_color(s_chart, lv_color_hex(0x3a4657), LV_PART_MAIN);
+    lv_obj_set_style_line_width(s_chart, 1, LV_PART_MAIN);
+    lv_obj_set_style_line_opa(s_chart, 242, LV_PART_MAIN);   /* 95% (242/255) */
+    lv_obj_set_style_line_dash_width(s_chart, 2, LV_PART_MAIN);
+    lv_obj_set_style_line_dash_gap(s_chart, 6, LV_PART_MAIN);
     lv_obj_set_style_width(s_chart, 0, LV_PART_INDICATOR);
     lv_obj_set_style_height(s_chart, 0, LV_PART_INDICATOR);
     s_serie_td   = lv_chart_add_series(s_chart, lv_color_hex(COR_TD_LINHA),   LV_CHART_AXIS_PRIMARY_Y);
@@ -429,14 +466,17 @@ static void monta_coleta(lv_obj_t *scr)
     lv_chart_set_all_value(s_chart, s_serie_temp, LV_CHART_POINT_NONE);
     lv_chart_set_all_value(s_chart, s_serie_ah,   LV_CHART_POINT_NONE);
 
-    /* Legendas eixo esq. (0-40): Td verde, Temp vermelho, AH magenta.  Eixo dir. (0-100): UR azul */
-    rotulo_eixo(s_chart, "Td",   COR_TD_LINHA,   &lv_font_montserrat_18, LV_ALIGN_OUT_TOP_LEFT,    6, -2);
-    rotulo_eixo(s_chart, "Temp", COR_TEMP_LINHA, &lv_font_montserrat_18, LV_ALIGN_OUT_TOP_LEFT,   54, -2);
-    rotulo_eixo(s_chart, "AH",   COR_AH_LINHA,   &lv_font_montserrat_18, LV_ALIGN_OUT_TOP_LEFT,  128, -2);
+    /* Legendas das grandezas ABAIXO do eixo. Esq.: "Td / Temp / AH" (escala 0-40). Dir.: "UR" (escala 0-100).
+     * Cada nome mantem a cor da sua linha; "/" cinza separa. Os numeros da escala ficam no eixo. */
+    rotulo_eixo(s_chart, "Td",   COR_TD_LINHA,   &lv_font_montserrat_18, LV_ALIGN_OUT_BOTTOM_LEFT,    6, 4);
+    rotulo_eixo(s_chart, "/",    COR_SUAVE,      &lv_font_montserrat_18, LV_ALIGN_OUT_BOTTOM_LEFT,   34, 4);
+    rotulo_eixo(s_chart, "Temp", COR_TEMP_LINHA, &lv_font_montserrat_18, LV_ALIGN_OUT_BOTTOM_LEFT,   52, 4);
+    rotulo_eixo(s_chart, "/",    COR_SUAVE,      &lv_font_montserrat_18, LV_ALIGN_OUT_BOTTOM_LEFT,  106, 4);
+    rotulo_eixo(s_chart, "AH",   COR_AH_LINHA,   &lv_font_montserrat_18, LV_ALIGN_OUT_BOTTOM_LEFT,  122, 4);
     rotulo_eixo(s_chart, "40",   0xE6E6E6,       &lv_font_montserrat_14, LV_ALIGN_OUT_LEFT_TOP,   -4,  2);
     rotulo_eixo(s_chart, "20",   0xE6E6E6,       &lv_font_montserrat_14, LV_ALIGN_OUT_LEFT_MID,   -4,  0);
     rotulo_eixo(s_chart, "0",    0xE6E6E6,       &lv_font_montserrat_14, LV_ALIGN_OUT_LEFT_BOTTOM,-4, -2);
-    rotulo_eixo(s_chart, "UR",   COR_UR_LINHA,   &lv_font_montserrat_18, LV_ALIGN_OUT_TOP_RIGHT,  -6, -2);
+    rotulo_eixo(s_chart, "UR",   COR_UR_LINHA,   &lv_font_montserrat_18, LV_ALIGN_OUT_BOTTOM_RIGHT,  -6, 4);
     rotulo_eixo(s_chart, "100",  COR_UR_LINHA,   &lv_font_montserrat_14, LV_ALIGN_OUT_RIGHT_TOP,    4,  2);
     rotulo_eixo(s_chart, "50",   COR_UR_LINHA,   &lv_font_montserrat_14, LV_ALIGN_OUT_RIGHT_MID,    4,  0);
     rotulo_eixo(s_chart, "0",    COR_UR_LINHA,   &lv_font_montserrat_14, LV_ALIGN_OUT_RIGHT_BOTTOM, 4, -2);
@@ -445,26 +485,26 @@ static void monta_coleta(lv_obj_t *scr)
     lv_label_set_text(s_lbl_baseline, "Baseline: --");
     lv_obj_set_style_text_font(s_lbl_baseline, &lv_font_montserrat_18, 0);
     lv_obj_set_style_text_color(s_lbl_baseline, lv_color_white(), 0);
-    lv_obj_align(s_lbl_baseline, LV_ALIGN_TOP_LEFT, 24, 470);
+    lv_obj_align(s_lbl_baseline, LV_ALIGN_TOP_MID, 0, 470);
 
     s_lbl_alerta = lv_label_create(scr);
     lv_label_set_text(s_lbl_alerta, LV_SYMBOL_WARNING " POSSIVEL INFILTRACAO (Td subiu > limiar)");
     lv_obj_set_style_text_font(s_lbl_alerta, &lv_font_montserrat_22, 0);
     lv_obj_set_style_text_color(s_lbl_alerta, lv_color_hex(COR_ALERTA), 0);
-    lv_obj_align(s_lbl_alerta, LV_ALIGN_TOP_MID, 0, 468);
+    lv_obj_align(s_lbl_alerta, LV_ALIGN_BOTTOM_MID, 0, -36);   /* centralizado entre os 2 botoes */
     lv_obj_add_flag(s_lbl_alerta, LV_OBJ_FLAG_HIDDEN);
 
     s_lbl_eventos = lv_label_create(scr);
     lv_label_set_text(s_lbl_eventos, "Eventos: 0");
     lv_obj_set_style_text_font(s_lbl_eventos, &lv_font_montserrat_18, 0);
     lv_obj_set_style_text_color(s_lbl_eventos, lv_color_white(), 0);
-    lv_obj_align(s_lbl_eventos, LV_ALIGN_TOP_RIGHT, -24, 470);
+    lv_obj_align(s_lbl_eventos, LV_ALIGN_TOP_RIGHT, -224, 470);
 
-    lv_obj_t *btn_ev = cria_botao(scr, "Marcar evento", COR_AZUL_BTN, 270, 74, btn_evento_cb, NULL);
+    lv_obj_t *btn_ev = cria_botao(scr, "Marcar evento", COR_AZUL_BTN, 202, 74, btn_evento_cb, NULL);
     lv_obj_align(btn_ev, LV_ALIGN_BOTTOM_LEFT, 24, -14);
 
     s_btn_log = lv_button_create(scr);
-    lv_obj_set_size(s_btn_log, 270, 74);
+    lv_obj_set_size(s_btn_log, 202, 74);
     lv_obj_align(s_btn_log, LV_ALIGN_BOTTOM_RIGHT, -24, -14);
     lv_obj_set_style_bg_color(s_btn_log, lv_color_hex(COR_VERDE_BTN), 0);
     lv_obj_add_event_cb(s_btn_log, btn_log_cb, LV_EVENT_CLICKED, NULL);
@@ -472,6 +512,9 @@ static void monta_coleta(lv_obj_t *scr)
     lv_label_set_text(s_btn_log_lbl, "Iniciar log");
     lv_obj_set_style_text_font(s_btn_log_lbl, &lv_font_montserrat_22, 0);
     lv_obj_center(s_btn_log_lbl);
+
+    s_blink_alerta = lv_timer_create(alerta_blink_cb, 700, NULL);
+    lv_timer_pause(s_blink_alerta);   /* so pisca durante o alerta */
 
     lv_timer_create(timer_cb, 400, NULL);
 }
@@ -483,7 +526,7 @@ static void monta_launcher(lv_obj_t *scr)
     lv_obj_set_style_bg_color(scr, lv_color_hex(COR_FUNDO), LV_PART_MAIN);
 
     lv_obj_t *t1 = lv_label_create(scr);
-    lv_label_set_text(t1, "Data Logger - Ensaio de Infiltracao  v0.1.1");
+    lv_label_set_text(t1, "Data Logger - Ensaio de Infiltracao  v0.1.2");
     lv_obj_set_style_text_font(t1, &lv_font_montserrat_26, 0);
     lv_obj_set_style_text_color(t1, lv_color_white(), 0);
     lv_obj_align(t1, LV_ALIGN_TOP_MID, 0, 90);
