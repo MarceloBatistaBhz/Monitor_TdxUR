@@ -1,6 +1,6 @@
 # Monitor_TdxUR — Data Logger de Temperatura e Umidade
 
-**Versão 0.1.6**
+**Versão 0.1.7**
 
 Firmware em **ESP-IDF (C)** para um data logger usado em **ensaio de infiltração de água em gabinete**. A detecção de água se dá pela subida da **umidade absoluta / ponto de orvalho (Td)** do ar interno — grandezas que, ao contrário da umidade relativa, não dependem da temperatura.
 
@@ -10,6 +10,7 @@ Firmware em **ESP-IDF (C)** para um data logger usado em **ensaio de infiltraç�
 - **Sensor:** Adafruit **SHT40** (I²C `0x44`), ligado ao conector I²C da placa (PH2.0, `SDA=GPIO7 / SCL=GPIO8`) — **mesmo barramento do touch** (compartilhado, driver `i2c_master` é thread-safe).
 - **Armazenamento:** microSD (SDMMC 4-bit) com fallback para LittleFS na flash interna.
 - **Buzzer (alarme sonoro):** ativo **TMB12A03** no **GPIO5** (driver direto, `GPIO_DRIVE_CAP_3`, ~18 mA @ 3V3). Recomenda-se **diodo de flyback** (ex.: 1N4148) em paralelo, por ser buzzer magnético.
+- **Tensão da bateria:** ADC no **GPIO20** (interno, sem header; divisor **1/3** — R92 200k / R93 100k, filtro C190 100nF) mede o nó `BAT` (terminal da bateria / saída do carregador ETA6098). `V_bat = V_adc × 3`.
 - Sem Wi-Fi e sem BLE. Alimentação pela USB-C (bancada) ou LiPo.
 
 ## Funcionalidades
@@ -71,6 +72,7 @@ Não apague o `dependencies.lock` depois disso, senão o gerenciador re-baixa e 
 
 ## Histórico
 
+- **v0.1.7** — **Tensão da bateria** na barra superior da tela de coleta (`Bat: X.XV`), lida do ADC no **GPIO20** (divisor 1/3) com calibração do IDF e média de 16 amostras, **colorida por faixa** (verde > 3,7 / amarelo 3,3–3,7 / vermelho < 3,3 V). Novo componente `bateria`; atualiza a cada 15 s. Sem bateria (na USB), mostra a tensão do nó `BAT`.
 - **v0.1.6** — **Alarme sonoro**: buzzer ativo no **GPIO5** (`GPIO_DRIVE_CAP_3`) que apita por **15 s** (cadência 0,5 s ligado / 1,0 s desligado) na **borda de subida** do alarme de infiltração; não reapita enquanto o alarme seguir armado (só após desarmar e armar de novo). Novo componente `buzzer`. Tela de coleta: **campo de tempo de gravação HH:MM:SS** (centro), com Baseline movido à esquerda e Eventos à direita.
 - **v0.1.5** — Tela *Visualizar teste*: lista de logs em **ordem alfabética decrescente** (os mais recentes no topo, sem precisar rolar); **cabeçalho amarelo** com o **uso do microSD** (usado / total) lido do próprio cartão via `esp_vfs_fat_info` (fallback LittleFS `esp_littlefs_info`).
 - **v0.1.4** — Tela *Visualizar teste*: **tamanho de cada arquivo** (B/KB/MB) ao lado do nome na lista; **gráfico com as 4 grandezas** do log (Td verde, Temp vermelho e AH amarelo no eixo esquerdo autoescalado; UR azul no eixo direito).

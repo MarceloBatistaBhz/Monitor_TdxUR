@@ -43,10 +43,11 @@ static bool      s_base_pronto;
 static float     s_base_td;
 static int       s_base_restante;   /* segundos que faltam p/ capturar o baseline */
 static bool      s_alerta;
+static float     s_bat_v = -1.0f;   /* tensao da bateria/USB (V); <0 = sem leitura */
 
 /* --- Widgets da coleta --- */
 static lv_obj_t *s_val_temp, *s_val_ur, *s_val_td, *s_val_ah, *s_card_td;
-static lv_obj_t *s_chart, *s_lbl_rec, *s_lbl_baseline, *s_lbl_eventos, *s_lbl_alerta, *s_lbl_titulo, *s_lbl_tempo;
+static lv_obj_t *s_chart, *s_lbl_rec, *s_lbl_baseline, *s_lbl_eventos, *s_lbl_alerta, *s_lbl_titulo, *s_lbl_tempo, *s_lbl_bateria;
 static lv_obj_t *s_btn_log, *s_btn_log_lbl;
 static lv_timer_t *s_blink_alerta;        /* pisca o texto de alerta enquanto Td excede */
 static uint32_t   s_grav_tick0;           /* lv_tick no inicio da gravacao (p/ o tempo HH:MM:SS) */
@@ -370,7 +371,7 @@ static void timer_cb(lv_timer_t *t)
     amostra_t a;
     bool nova, evt_d, grav, bpronto, alerta;
     uint32_t evt;
-    float btd;
+    float btd, bat;
     int brest;
     char nome[40];
     xSemaphoreTake(s_mtx, portMAX_DELAY);
@@ -378,7 +379,7 @@ static void timer_cb(lv_timer_t *t)
     evt_d = s_evt_dirty; s_evt_dirty = false;  evt = s_evt_count;
     grav = s_grav;     strcpy(nome, s_grav_nome);
     bpronto = s_base_pronto; btd = s_base_td; brest = s_base_restante;
-    alerta = s_alerta;
+    alerta = s_alerta;  bat = s_bat_v;
     xSemaphoreGive(s_mtx);
 
     char buf[64];
@@ -467,6 +468,21 @@ static void timer_cb(lv_timer_t *t)
             lv_obj_add_flag(s_lbl_alerta, LV_OBJ_FLAG_HIDDEN);      /* apaga de vez */
         }
     }
+
+    /* Bateria: "Bat: X.XV" colorido por faixa (verde >3.7 / amarelo 3.3-3.7 / vermelho <3.3) */
+    static float last_bat = -999.0f;
+    if (bat != last_bat) {
+        last_bat = bat;
+        if (bat < 0.0f) {
+            lv_label_set_text(s_lbl_bateria, "Bat: --");
+            lv_obj_set_style_text_color(s_lbl_bateria, lv_color_hex(COR_SUAVE), 0);
+        } else {
+            snprintf(buf, sizeof buf, "Bat: %.1fV", bat);
+            lv_label_set_text(s_lbl_bateria, buf);
+            uint32_t cor = (bat > 3.7f) ? 0x2ecc71 : (bat >= 3.3f) ? 0xf1c40f : 0xe74c3c;
+            lv_obj_set_style_text_color(s_lbl_bateria, lv_color_hex(cor), 0);
+        }
+    }
 }
 
 static void btn_evento_cb(lv_event_t *e)
@@ -514,6 +530,14 @@ static void monta_coleta(lv_obj_t *scr)
     lv_obj_set_style_text_font(s_lbl_rec, &lv_font_montserrat_22, 0);
     lv_obj_set_style_text_color(s_lbl_rec, lv_color_hex(COR_SUAVE), 0);
     lv_obj_align(s_lbl_rec, LV_ALIGN_TOP_RIGHT, -20, 14);
+
+    /* Bateria (barra superior): cor por faixa, atualizada no timer_cb. Acima do card verde,
+     * pois o vao exato verde/amarelo e ocupado pelo "GRAVANDO ..." durante a gravacao. */
+    s_lbl_bateria = lv_label_create(scr);
+    lv_label_set_text(s_lbl_bateria, "Bat: --");
+    lv_obj_set_style_text_font(s_lbl_bateria, &lv_font_montserrat_22, 0);
+    lv_obj_set_style_text_color(s_lbl_bateria, lv_color_hex(COR_SUAVE), 0);
+    lv_obj_align(s_lbl_bateria, LV_ALIGN_TOP_MID, 87, 14);   /* 5 mm p/ a esquerda */
 
     lv_obj_t *linha = lv_obj_create(scr);
     lv_obj_set_size(linha, 1000, 158);
@@ -628,7 +652,7 @@ static void monta_launcher(lv_obj_t *scr)
     lv_obj_set_style_bg_color(scr, lv_color_hex(COR_FUNDO), LV_PART_MAIN);
 
     lv_obj_t *t1 = lv_label_create(scr);
-    lv_label_set_text(t1, "Data Logger - Ensaio de Infiltracao  v0.1.6");
+    lv_label_set_text(t1, "Data Logger - Ensaio de Infiltracao  v0.1.7");
     lv_obj_set_style_text_font(t1, &lv_font_montserrat_26, 0);
     lv_obj_set_style_text_color(t1, lv_color_white(), 0);
     lv_obj_align(t1, LV_ALIGN_TOP_MID, 0, 90);
@@ -748,5 +772,13 @@ void ui_set_alerta(bool alerta)
     if (s_mtx == NULL) return;
     xSemaphoreTake(s_mtx, portMAX_DELAY);
     s_alerta = alerta;
+    xSemaphoreGive(s_mtx);
+}
+
+void ui_set_bateria(float volts)
+{
+    if (s_mtx == NULL) return;
+    xSemaphoreTake(s_mtx, portMAX_DELAY);
+    s_bat_v = volts;
     xSemaphoreGive(s_mtx);
 }

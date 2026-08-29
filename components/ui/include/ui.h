@@ -40,6 +40,10 @@ void ui_set_baseline(bool pronto, float td_baseline, int restante_s);
 /** @brief Alerta de infiltracao: destaca o card do Td em vermelho e mostra o aviso. */
 void ui_set_alerta(bool alerta);
 
+/** @brief Tensao da bateria (ou USB) em volts, exibida na barra superior da tela de coleta
+ *         com cor por faixa (verde >3.7 / amarelo 3.3-3.7 / vermelho <3.3). <0 mostra "--". */
+void ui_set_bateria(float volts);
+
 #ifdef __cplusplus
 }
 #endif

@@ -29,6 +29,7 @@
 #include "registro.h"
 #include "ui.h"
 #include "buzzer.h"
+#include "bateria.h"
 
 static const char *TAG = "app";
 
@@ -102,6 +103,7 @@ static void task_aquisicao(void *arg)
             xSemaphoreGive(s_mtx);
 
             ui_nova_amostra(&a);
+            ui_set_bateria(bateria_ler_v());   /* tensao da bateria/USB (a cada amostra) */
             if (logando) {
                 ui_set_baseline(pronto, base_td, base_restante);
                 bool alarme = pronto && (a.td_c > base_td + LIMIAR_ALERTA_C);
@@ -246,6 +248,9 @@ void app_main(void)
 
     /* 4b) Buzzer do alarme sonoro (GPIO5, driver direto CAP_3) */
     buzzer_iniciar();
+
+    /* 4c) Leitura da tensao da bateria (ADC no GPIO20, divisor 1/3) */
+    bateria_iniciar();
 
     /* 5) Tasks: aquisicao (core 1) e leitor de teclas (core 0) */
     xTaskCreatePinnedToCore(task_aquisicao, "aquisicao", STACK_AQUISICAO, NULL,
