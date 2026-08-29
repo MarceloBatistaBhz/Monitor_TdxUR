@@ -3,6 +3,7 @@
 #include <stdio.h>
 #include <string.h>
 #include <stdint.h>
+#include <sys/stat.h>       /* stat() p/ mostrar o tamanho dos logs no visualizador */
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
 #include "lvgl.h"
@@ -175,22 +176,30 @@ static void visu_carregar(const char *caminho)
     lv_chart_set_div_line_count(ch, 5, 0);
     lv_obj_set_style_width(ch, 0, LV_PART_INDICATOR);
     lv_obj_set_style_height(ch, 0, LV_PART_INDICATOR);
-    lv_chart_series_t *st = lv_chart_add_series(ch, lv_color_hex(COR_TD_LINHA), LV_CHART_AXIS_PRIMARY_Y);
-    lv_chart_series_t *su = lv_chart_add_series(ch, lv_color_hex(COR_UR_LINHA), LV_CHART_AXIS_SECONDARY_Y);
+    lv_chart_series_t *st  = lv_chart_add_series(ch, lv_color_hex(COR_TD_LINHA),   LV_CHART_AXIS_PRIMARY_Y);
+    lv_chart_series_t *su  = lv_chart_add_series(ch, lv_color_hex(COR_UR_LINHA),   LV_CHART_AXIS_SECONDARY_Y);
+    lv_chart_series_t *stp = lv_chart_add_series(ch, lv_color_hex(COR_TEMP_LINHA), LV_CHART_AXIS_PRIMARY_Y);
+    lv_chart_series_t *sah = lv_chart_add_series(ch, lv_color_hex(COR_AH_LINHA),   LV_CHART_AXIS_PRIMARY_Y);
 
-    /* passo 2: preenche (com downsampling), acha td_min/max e marca eventos */
+    /* passo 2: preenche (com downsampling), acha min/max (Td/Temp/AH) e marca eventos */
     f = fopen(caminho, "r");
     if (fgets(linha, sizeof linha, f)) { /* cabecalho */ }
     int j = 0, p = 0, nev = 0, ncur = 0;
-    float td_min = 1e9f, td_max = -1e9f;
+    float y_min = 1e9f, y_max = -1e9f;
     while (p < P && fgets(linha, sizeof linha, f)) {
         long long sb; char hh[12]; float t, ur, td, ah; int ev;
         if (sscanf(linha, "%lld;%11[^;];%f;%f;%f;%f;%d", &sb, hh, &t, &ur, &td, &ah, &ev) >= 7) {
             if (j % stride == 0) {
-                lv_chart_set_series_value_by_id(ch, st, p, (int32_t)(td * 10.0f));
-                lv_chart_set_series_value_by_id(ch, su, p, (int32_t)(ur * 10.0f));
-                if (td < td_min) td_min = td;
-                if (td > td_max) td_max = td;
+                lv_chart_set_series_value_by_id(ch, st,  p, (int32_t)(td * 10.0f));
+                lv_chart_set_series_value_by_id(ch, su,  p, (int32_t)(ur * 10.0f));
+                lv_chart_set_series_value_by_id(ch, stp, p, (int32_t)(t  * 10.0f));
+                lv_chart_set_series_value_by_id(ch, sah, p, (int32_t)(ah * 10.0f));
+                if (td < y_min) y_min = td;
+                if (td > y_max) y_max = td;
+                if (t  < y_min) y_min = t;
+                if (t  > y_max) y_max = t;
+                if (ah < y_min) y_min = ah;
+                if (ah > y_max) y_max = ah;
                 if (ev == 1 && ncur < 32) {
                     lv_chart_cursor_t *c = lv_chart_add_cursor(ch, lv_color_hex(COR_EVENTO), LV_DIR_VER);
                     lv_chart_set_cursor_point(ch, c, st, p);
@@ -211,25 +220,27 @@ static void visu_carregar(const char *caminho)
     }
     fclose(f);
 
-    /* autoescala do eixo do Td para destacar a variacao */
-    if (td_max <= td_min) { td_min -= 1.0f; td_max += 1.0f; }
-    float margem = (td_max - td_min) * 0.15f;
+    /* autoescala do eixo esquerdo cobrindo Td, Temp e AH (todas as linhas visiveis) */
+    if (y_max <= y_min) { y_min -= 1.0f; y_max += 1.0f; }
+    float margem = (y_max - y_min) * 0.15f;
     if (margem < 0.5f) margem = 0.5f;
-    float lo = td_min - margem, hi = td_max + margem;
+    float lo = y_min - margem, hi = y_max + margem;
     lv_chart_set_range(ch, LV_CHART_AXIS_PRIMARY_Y, (int32_t)(lo * 10.0f), (int32_t)(hi * 10.0f));
 
     lv_label_set_text_fmt(info, "%s   -   %d amostras, %d eventos", bn, R, nev);
 
-    /* escalas: Td (verde, dinamico) a esquerda; UR (azul, 0..100) a direita */
+    /* eixo esq. (autoescala, cobre Td/Temp/AH) com nomes coloridos; eixo dir. UR 0..100 */
     char b1[8], b2[8], b3[8];
     snprintf(b1, sizeof b1, "%.1f", hi);
     snprintf(b2, sizeof b2, "%.1f", (lo + hi) / 2.0f);
     snprintf(b3, sizeof b3, "%.1f", lo);
-    rotulo_eixo(ch, "Td",  COR_TD_LINHA, &lv_font_montserrat_14, LV_ALIGN_OUT_TOP_LEFT,   4, -2);
-    rotulo_eixo(ch, b1,    COR_TD_LINHA, &lv_font_montserrat_14, LV_ALIGN_OUT_LEFT_TOP,   -4,  2);
-    rotulo_eixo(ch, b2,    COR_TD_LINHA, &lv_font_montserrat_14, LV_ALIGN_OUT_LEFT_MID,   -4,  0);
-    rotulo_eixo(ch, b3,    COR_TD_LINHA, &lv_font_montserrat_14, LV_ALIGN_OUT_LEFT_BOTTOM,-4, -2);
-    rotulo_eixo(ch, "UR",  COR_UR_LINHA, &lv_font_montserrat_14, LV_ALIGN_OUT_TOP_RIGHT,  -4, -2);
+    rotulo_eixo(ch, "Td",   COR_TD_LINHA,   &lv_font_montserrat_14, LV_ALIGN_OUT_TOP_LEFT,    4, -2);
+    rotulo_eixo(ch, "Temp", COR_TEMP_LINHA, &lv_font_montserrat_14, LV_ALIGN_OUT_TOP_LEFT,   30, -2);
+    rotulo_eixo(ch, "AH",   COR_AH_LINHA,   &lv_font_montserrat_14, LV_ALIGN_OUT_TOP_LEFT,   78, -2);
+    rotulo_eixo(ch, b1,     0xE6E6E6,       &lv_font_montserrat_14, LV_ALIGN_OUT_LEFT_TOP,   -4,  2);
+    rotulo_eixo(ch, b2,     0xE6E6E6,       &lv_font_montserrat_14, LV_ALIGN_OUT_LEFT_MID,   -4,  0);
+    rotulo_eixo(ch, b3,     0xE6E6E6,       &lv_font_montserrat_14, LV_ALIGN_OUT_LEFT_BOTTOM,-4, -2);
+    rotulo_eixo(ch, "UR",   COR_UR_LINHA,   &lv_font_montserrat_14, LV_ALIGN_OUT_TOP_RIGHT,  -4, -2);
     rotulo_eixo(ch, "100", COR_UR_LINHA, &lv_font_montserrat_14, LV_ALIGN_OUT_RIGHT_TOP,    4,  2);
     rotulo_eixo(ch, "50",  COR_UR_LINHA, &lv_font_montserrat_14, LV_ALIGN_OUT_RIGHT_MID,    4,  0);
     rotulo_eixo(ch, "0",   COR_UR_LINHA, &lv_font_montserrat_14, LV_ALIGN_OUT_RIGHT_BOTTOM, 4, -2);
@@ -251,6 +262,20 @@ static void visu_item_cb(lv_event_t *e)
     }
 }
 
+/* Formata bytes como "N B" / "N.n KB" / "N.n MB" usando so inteiros
+ * (evita %f, que dispara -Werror=format-truncation por assumir double gigante). */
+static void formata_tamanho(char *out, size_t outsz, long bytes)
+{
+    if (bytes < 1024) {
+        snprintf(out, outsz, "%ld B", bytes);
+    } else if (bytes < 1024 * 1024) {
+        snprintf(out, outsz, "%ld.%ld KB", bytes / 1024, (bytes % 1024) * 10 / 1024);
+    } else {
+        long mb = 1024 * 1024;
+        snprintf(out, outsz, "%ld.%ld MB", bytes / mb, (bytes % mb) * 10 / mb);
+    }
+}
+
 static void visu_refresh(void)
 {
     lv_obj_clean(s_visu_lista);
@@ -262,7 +287,18 @@ static void visu_refresh(void)
     for (int i = 0; i < n; i++) {
         const char *bn = strrchr(s_visu_nomes[i], '/');
         bn = bn ? bn + 1 : s_visu_nomes[i];
-        lv_obj_t *b = lv_list_add_button(s_visu_lista, LV_SYMBOL_FILE, bn);
+
+        /* Tamanho do arquivo ao lado do nome (B / KB / MB) */
+        char rotulo[80], tam[16];
+        struct stat st;
+        if (stat(s_visu_nomes[i], &st) == 0) {
+            formata_tamanho(tam, sizeof tam, (long)st.st_size);
+            snprintf(rotulo, sizeof rotulo, "%.47s   %s", bn, tam);
+        } else {
+            snprintf(rotulo, sizeof rotulo, "%.47s", bn);   /* sem tamanho se stat falhar */
+        }
+
+        lv_obj_t *b = lv_list_add_button(s_visu_lista, LV_SYMBOL_FILE, rotulo);
         lv_obj_add_event_cb(b, visu_item_cb, LV_EVENT_CLICKED, (void *)(intptr_t)i);
     }
 }
@@ -536,7 +572,7 @@ static void monta_launcher(lv_obj_t *scr)
     lv_obj_set_style_bg_color(scr, lv_color_hex(COR_FUNDO), LV_PART_MAIN);
 
     lv_obj_t *t1 = lv_label_create(scr);
-    lv_label_set_text(t1, "Data Logger - Ensaio de Infiltracao  v0.1.3");
+    lv_label_set_text(t1, "Data Logger - Ensaio de Infiltracao  v0.1.4");
     lv_obj_set_style_text_font(t1, &lv_font_montserrat_26, 0);
     lv_obj_set_style_text_color(t1, lv_color_white(), 0);
     lv_obj_align(t1, LV_ALIGN_TOP_MID, 0, 90);
