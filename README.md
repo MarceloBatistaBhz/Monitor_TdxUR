@@ -1,6 +1,6 @@
 # Monitor_TdxUR — Data Logger de Temperatura e Umidade
 
-**Versão 0.1.5**
+**Versão 0.1.6**
 
 Firmware em **ESP-IDF (C)** para um data logger usado em **ensaio de infiltração de água em gabinete**. A detecção de água se dá pela subida da **umidade absoluta / ponto de orvalho (Td)** do ar interno — grandezas que, ao contrário da umidade relativa, não dependem da temperatura.
 
@@ -9,6 +9,7 @@ Firmware em **ESP-IDF (C)** para um data logger usado em **ensaio de infiltraç�
 - **Placa:** Waveshare **ESP32-P4-WIFI6-Touch-LCD-7B** (ESP32-P4 + display DSI 7" 1024×600 com touch capacitivo).
 - **Sensor:** Adafruit **SHT40** (I²C `0x44`), ligado ao conector I²C da placa (PH2.0, `SDA=GPIO7 / SCL=GPIO8`) — **mesmo barramento do touch** (compartilhado, driver `i2c_master` é thread-safe).
 - **Armazenamento:** microSD (SDMMC 4-bit) com fallback para LittleFS na flash interna.
+- **Buzzer (alarme sonoro):** ativo **TMB12A03** no **GPIO5** (driver direto, `GPIO_DRIVE_CAP_3`, ~18 mA @ 3V3). Recomenda-se **diodo de flyback** (ex.: 1N4148) em paralelo, por ser buzzer magnético.
 - Sem Wi-Fi e sem BLE. Alimentação pela USB-C (bancada) ou LiPo.
 
 ## Funcionalidades
@@ -70,6 +71,7 @@ Não apague o `dependencies.lock` depois disso, senão o gerenciador re-baixa e 
 
 ## Histórico
 
+- **v0.1.6** — **Alarme sonoro**: buzzer ativo no **GPIO5** (`GPIO_DRIVE_CAP_3`) que apita por **15 s** (cadência 0,5 s ligado / 1,0 s desligado) na **borda de subida** do alarme de infiltração; não reapita enquanto o alarme seguir armado (só após desarmar e armar de novo). Novo componente `buzzer`. Tela de coleta: **campo de tempo de gravação HH:MM:SS** (centro), com Baseline movido à esquerda e Eventos à direita.
 - **v0.1.5** — Tela *Visualizar teste*: lista de logs em **ordem alfabética decrescente** (os mais recentes no topo, sem precisar rolar); **cabeçalho amarelo** com o **uso do microSD** (usado / total) lido do próprio cartão via `esp_vfs_fat_info` (fallback LittleFS `esp_littlefs_info`).
 - **v0.1.4** — Tela *Visualizar teste*: **tamanho de cada arquivo** (B/KB/MB) ao lado do nome na lista; **gráfico com as 4 grandezas** do log (Td verde, Temp vermelho e AH amarelo no eixo esquerdo autoescalado; UR azul no eixo direito).
 - **v0.1.3** — Tela de coleta: **contagem regressiva** do baseline (*capturando... N s*, com decremento suave a cada ~400 ms reancorado a cada amostra); label do baseline reposicionado ~5 mm à esquerda. Config restaurada para os **valores reais do ensaio** (amostragem **15 s**, baseline **180 s**).

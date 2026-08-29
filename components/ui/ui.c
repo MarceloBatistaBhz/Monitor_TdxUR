@@ -46,9 +46,10 @@ static bool      s_alerta;
 
 /* --- Widgets da coleta --- */
 static lv_obj_t *s_val_temp, *s_val_ur, *s_val_td, *s_val_ah, *s_card_td;
-static lv_obj_t *s_chart, *s_lbl_rec, *s_lbl_baseline, *s_lbl_eventos, *s_lbl_alerta, *s_lbl_titulo;
+static lv_obj_t *s_chart, *s_lbl_rec, *s_lbl_baseline, *s_lbl_eventos, *s_lbl_alerta, *s_lbl_titulo, *s_lbl_tempo;
 static lv_obj_t *s_btn_log, *s_btn_log_lbl;
 static lv_timer_t *s_blink_alerta;        /* pisca o texto de alerta enquanto Td excede */
+static uint32_t   s_grav_tick0;           /* lv_tick no inicio da gravacao (p/ o tempo HH:MM:SS) */
 static lv_chart_series_t *s_serie_td, *s_serie_ur, *s_serie_temp, *s_serie_ah;
 static bool s_mostra_temp, s_mostra_ah;   /* ticks: Temp/AH (Td e UR sao fixas e vao pro log) */
 
@@ -424,6 +425,7 @@ static void timer_cb(lv_timer_t *t)
         lv_label_set_text(s_btn_log_lbl, grav ? "Parar log" : "Iniciar log");
         lv_obj_set_style_bg_color(s_btn_log, lv_color_hex(grav ? COR_ALERTA : COR_VERDE_BTN), 0);
         if (grav) {
+            s_grav_tick0 = lv_tick_get();   /* zera o cronometro de gravacao */
             /* Novo ensaio: limpa o grafico de acompanhamento (apaga as 4 linhas) */
             lv_chart_set_all_value(s_chart, s_serie_td,   LV_CHART_POINT_NONE);
             lv_chart_set_all_value(s_chart, s_serie_ur,   LV_CHART_POINT_NONE);
@@ -437,7 +439,16 @@ static void timer_cb(lv_timer_t *t)
         } else {
             lv_label_set_text(s_lbl_rec, "parado");
             lv_obj_set_style_text_color(s_lbl_rec, lv_color_hex(COR_SUAVE), 0);
+            lv_label_set_text(s_lbl_tempo, "--:--:--");
         }
+    }
+
+    /* Tempo de gravacao ao vivo (HH:MM:SS) */
+    if (grav) {
+        uint32_t seg = lv_tick_elaps(s_grav_tick0) / 1000;
+        snprintf(buf, sizeof buf, "%02lu:%02lu:%02lu",
+                 (unsigned long)(seg / 3600), (unsigned long)((seg / 60) % 60), (unsigned long)(seg % 60));
+        lv_label_set_text(s_lbl_tempo, buf);
     }
 
     static int last_alerta = -1;
@@ -569,7 +580,7 @@ static void monta_coleta(lv_obj_t *scr)
     lv_label_set_text(s_lbl_baseline, "Baseline: --");
     lv_obj_set_style_text_font(s_lbl_baseline, &lv_font_montserrat_18, 0);
     lv_obj_set_style_text_color(s_lbl_baseline, lv_color_white(), 0);
-    lv_obj_align(s_lbl_baseline, LV_ALIGN_TOP_MID, -33, 470);   /* ~5 mm p/ a esquerda */
+    lv_obj_align(s_lbl_baseline, LV_ALIGN_TOP_MID, -133, 470);  /* ~5 mm + 15 mm p/ a esquerda (abre o centro p/ o tempo) */
 
     s_lbl_alerta = lv_label_create(scr);
     lv_label_set_text(s_lbl_alerta, LV_SYMBOL_WARNING " POSSIVEL INFILTRACAO (Td subiu > limiar)");
@@ -582,7 +593,14 @@ static void monta_coleta(lv_obj_t *scr)
     lv_label_set_text(s_lbl_eventos, "Eventos: 0");
     lv_obj_set_style_text_font(s_lbl_eventos, &lv_font_montserrat_18, 0);
     lv_obj_set_style_text_color(s_lbl_eventos, lv_color_white(), 0);
-    lv_obj_align(s_lbl_eventos, LV_ALIGN_TOP_RIGHT, -224, 470);
+    lv_obj_align(s_lbl_eventos, LV_ALIGN_TOP_RIGHT, -124, 470);   /* 15 mm p/ a direita */
+
+    /* Tempo de gravacao (HH:MM:SS), no centro do espaco aberto entre Baseline e Eventos */
+    s_lbl_tempo = lv_label_create(scr);
+    lv_label_set_text(s_lbl_tempo, "--:--:--");
+    lv_obj_set_style_text_font(s_lbl_tempo, &lv_font_montserrat_18, 0);
+    lv_obj_set_style_text_color(s_lbl_tempo, lv_color_white(), 0);
+    lv_obj_align(s_lbl_tempo, LV_ALIGN_TOP_MID, 134, 470);   /* 20 mm p/ a direita (nao encostar no texto de captura do Baseline) */
 
     lv_obj_t *btn_ev = cria_botao(scr, "Marcar evento", COR_AZUL_BTN, 202, 74, btn_evento_cb, NULL);
     lv_obj_align(btn_ev, LV_ALIGN_BOTTOM_LEFT, 24, -14);
@@ -610,7 +628,7 @@ static void monta_launcher(lv_obj_t *scr)
     lv_obj_set_style_bg_color(scr, lv_color_hex(COR_FUNDO), LV_PART_MAIN);
 
     lv_obj_t *t1 = lv_label_create(scr);
-    lv_label_set_text(t1, "Data Logger - Ensaio de Infiltracao  v0.1.5");
+    lv_label_set_text(t1, "Data Logger - Ensaio de Infiltracao  v0.1.6");
     lv_obj_set_style_text_font(t1, &lv_font_montserrat_26, 0);
     lv_obj_set_style_text_color(t1, lv_color_white(), 0);
     lv_obj_align(t1, LV_ALIGN_TOP_MID, 0, 90);

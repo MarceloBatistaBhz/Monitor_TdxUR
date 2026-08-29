@@ -28,6 +28,7 @@
 #include "psicrometria.h"
 #include "registro.h"
 #include "ui.h"
+#include "buzzer.h"
 
 static const char *TAG = "app";
 
@@ -103,7 +104,9 @@ static void task_aquisicao(void *arg)
             ui_nova_amostra(&a);
             if (logando) {
                 ui_set_baseline(pronto, base_td, base_restante);
-                ui_set_alerta(pronto && (a.td_c > base_td + LIMIAR_ALERTA_C));
+                bool alarme = pronto && (a.td_c > base_td + LIMIAR_ALERTA_C);
+                ui_set_alerta(alarme);
+                buzzer_set_alarme(alarme);   /* borda de subida -> apita 15 s */
             }
             if (s_fila != NULL && xQueueSend(s_fila, &a, 0) != pdTRUE) {
                 ESP_LOGW(TAG, "Fila cheia - amostra nao gravada");
@@ -158,6 +161,7 @@ static void app_toggle_log(void)
         ui_set_gravando(false, NULL);
         ui_set_baseline(false, 0.0f, 0);
         ui_set_alerta(false);
+        buzzer_set_alarme(false);
     } else {
         char nome[40];
         if (registro_abrir(nome, sizeof nome) == ESP_OK) {
@@ -172,6 +176,7 @@ static void app_toggle_log(void)
             ui_set_gravando(true, nome);
             ui_set_baseline(false, 0.0f, BASELINE_SEGUNDOS);
             ui_set_alerta(false);
+            buzzer_set_alarme(false);
         } else {
             ESP_LOGE(TAG, "Nao consegui iniciar o log (sem cartao/midia?)");
         }
@@ -238,6 +243,9 @@ void app_main(void)
     if (registro_iniciar(&s_fila) != ESP_OK) {
         ESP_LOGW(TAG, "Sem midia de gravacao - a UI funciona, mas nao havera log");
     }
+
+    /* 4b) Buzzer do alarme sonoro (GPIO5, driver direto CAP_3) */
+    buzzer_iniciar();
 
     /* 5) Tasks: aquisicao (core 1) e leitor de teclas (core 0) */
     xTaskCreatePinnedToCore(task_aquisicao, "aquisicao", STACK_AQUISICAO, NULL,
