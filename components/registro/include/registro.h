@@ -58,6 +58,15 @@ bool registro_gravando(void);
 const char *registro_base(void);
 
 /**
+ * @brief Capacidade da midia montada, lida do proprio sistema de arquivos.
+ *        SD -> esp_vfs_fat_info; LittleFS -> esp_littlefs_info.
+ * @param total_bytes  (opcional) recebe a capacidade total em bytes.
+ * @param livre_bytes  (opcional) recebe o espaco livre em bytes.
+ * @return ESP_OK se leu; erro/sem midia caso contrario.
+ */
+esp_err_t registro_capacidade(uint64_t *total_bytes, uint64_t *livre_bytes);
+
+/**
  * @brief Lista os arquivos log_*.csv da midia montada (caminhos completos, ordenados).
  * @param nomes  matriz [max][48] que recebe os caminhos.
  * @param max    numero maximo de nomes.

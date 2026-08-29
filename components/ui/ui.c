@@ -1,7 +1,9 @@
 #include "ui.h"
 
 #include <stdio.h>
+#include <stdlib.h>         /* qsort() p/ ordenar a lista de logs */
 #include <string.h>
+#include <strings.h>        /* strcasecmp() */
 #include <stdint.h>
 #include <sys/stat.h>       /* stat() p/ mostrar o tamanho dos logs no visualizador */
 #include "freertos/FreeRTOS.h"
@@ -262,18 +264,27 @@ static void visu_item_cb(lv_event_t *e)
     }
 }
 
-/* Formata bytes como "N B" / "N.n KB" / "N.n MB" usando so inteiros
+/* Formata bytes como "N B" / "N.n KB" / "N.n MB" / "N.n GB" usando so inteiros
  * (evita %f, que dispara -Werror=format-truncation por assumir double gigante). */
-static void formata_tamanho(char *out, size_t outsz, long bytes)
+static void formata_tamanho(char *out, size_t outsz, long long bytes)
 {
     if (bytes < 1024) {
-        snprintf(out, outsz, "%ld B", bytes);
-    } else if (bytes < 1024 * 1024) {
-        snprintf(out, outsz, "%ld.%ld KB", bytes / 1024, (bytes % 1024) * 10 / 1024);
+        snprintf(out, outsz, "%lld B", bytes);
+    } else if (bytes < 1024LL * 1024) {
+        snprintf(out, outsz, "%lld.%lld KB", bytes / 1024, (bytes % 1024) * 10 / 1024);
+    } else if (bytes < 1024LL * 1024 * 1024) {
+        long long mb = 1024LL * 1024;
+        snprintf(out, outsz, "%lld.%lld MB", bytes / mb, (bytes % mb) * 10 / mb);
     } else {
-        long mb = 1024 * 1024;
-        snprintf(out, outsz, "%ld.%ld MB", bytes / mb, (bytes % mb) * 10 / mb);
+        long long gb = 1024LL * 1024 * 1024;
+        snprintf(out, outsz, "%lld.%lld GB", bytes / gb, (bytes % gb) * 10 / gb);
     }
+}
+
+/* Ordem alfabetica DECRESCENTE: logs mais recentes (numero maior) no topo da lista. */
+static int cmp_nome_desc(const void *a, const void *b)
+{
+    return strcasecmp((const char *)b, (const char *)a);
 }
 
 static void visu_refresh(void)
@@ -284,15 +295,42 @@ static void visu_refresh(void)
         lv_list_add_text(s_visu_lista, "(nenhum log encontrado)");
         return;
     }
+    if (n > 1) qsort(s_visu_nomes, n, sizeof s_visu_nomes[0], cmp_nome_desc);
+
+    /* Tamanho de cada arquivo (uma vez) e soma para o uso do cartao */
+    long long tam_arq[MAX_LOGS];
+    long long usado = 0;
+    for (int i = 0; i < n; i++) {
+        struct stat st;
+        tam_arq[i] = (stat(s_visu_nomes[i], &st) == 0) ? (long long)st.st_size : -1;
+        if (tam_arq[i] > 0) usado += tam_arq[i];
+    }
+
+    /* 1a linha (cabecalho): uso do microSD lido do proprio FS (usado real / total real);
+     * fallback = soma dos .csv se a leitura falhar. Fundo amarelo intenso, texto escuro. */
+    uint64_t cap_total = 0, cap_livre = 0;
+    char usado_str[24], total_str[24], cab[64];
+    if (registro_capacidade(&cap_total, &cap_livre) == ESP_OK && cap_total > 0) {
+        formata_tamanho(usado_str, sizeof usado_str, (long long)(cap_total - cap_livre));
+        formata_tamanho(total_str, sizeof total_str, (long long)cap_total);
+        snprintf(cab, sizeof cab, LV_SYMBOL_SD_CARD "  %s / %s", usado_str, total_str);
+    } else {
+        formata_tamanho(usado_str, sizeof usado_str, usado);
+        snprintf(cab, sizeof cab, LV_SYMBOL_SD_CARD "  %s / --", usado_str);
+    }
+    lv_obj_t *hdr = lv_list_add_text(s_visu_lista, cab);
+    lv_obj_set_style_bg_color(hdr, lv_color_hex(0xFFE000), 0);   /* amarelo intenso */
+    lv_obj_set_style_bg_opa(hdr, LV_OPA_COVER, 0);
+    lv_obj_set_style_text_color(hdr, lv_color_hex(0x101820), 0); /* texto escuro p/ contraste */
+
     for (int i = 0; i < n; i++) {
         const char *bn = strrchr(s_visu_nomes[i], '/');
         bn = bn ? bn + 1 : s_visu_nomes[i];
 
         /* Tamanho do arquivo ao lado do nome (B / KB / MB) */
         char rotulo[80], tam[16];
-        struct stat st;
-        if (stat(s_visu_nomes[i], &st) == 0) {
-            formata_tamanho(tam, sizeof tam, (long)st.st_size);
+        if (tam_arq[i] >= 0) {
+            formata_tamanho(tam, sizeof tam, tam_arq[i]);
             snprintf(rotulo, sizeof rotulo, "%.47s   %s", bn, tam);
         } else {
             snprintf(rotulo, sizeof rotulo, "%.47s", bn);   /* sem tamanho se stat falhar */
@@ -572,7 +610,7 @@ static void monta_launcher(lv_obj_t *scr)
     lv_obj_set_style_bg_color(scr, lv_color_hex(COR_FUNDO), LV_PART_MAIN);
 
     lv_obj_t *t1 = lv_label_create(scr);
-    lv_label_set_text(t1, "Data Logger - Ensaio de Infiltracao  v0.1.4");
+    lv_label_set_text(t1, "Data Logger - Ensaio de Infiltracao  v0.1.5");
     lv_obj_set_style_text_font(t1, &lv_font_montserrat_26, 0);
     lv_obj_set_style_text_color(t1, lv_color_white(), 0);
     lv_obj_align(t1, LV_ALIGN_TOP_MID, 0, 90);

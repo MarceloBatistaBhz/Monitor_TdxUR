@@ -230,6 +230,26 @@ const char *registro_base(void)
     return s_base;
 }
 
+esp_err_t registro_capacidade(uint64_t *total_bytes, uint64_t *livre_bytes)
+{
+    if (total_bytes) *total_bytes = 0;
+    if (livre_bytes) *livre_bytes = 0;
+    if (s_base[0] == '\0') {
+        return ESP_ERR_INVALID_STATE;            /* nenhuma midia montada */
+    }
+    if (strcmp(s_base, SD_PONTO_MONTAGEM) == 0) {
+        return esp_vfs_fat_info(SD_PONTO_MONTAGEM, total_bytes, livre_bytes);
+    }
+    /* LittleFS: devolve total e USADO -> converto para livre */
+    size_t tot = 0, usado = 0;
+    esp_err_t err = esp_littlefs_info(LFS_PARTICAO, &tot, &usado);
+    if (err == ESP_OK) {
+        if (total_bytes) *total_bytes = tot;
+        if (livre_bytes) *livre_bytes = (tot > usado) ? (tot - usado) : 0;
+    }
+    return err;
+}
+
 static int cmp_nome(const void *a, const void *b)
 {
     return strcmp((const char *)a, (const char *)b);

@@ -1,6 +1,6 @@
 # Monitor_TdxUR — Data Logger de Temperatura e Umidade
 
-**Versão 0.1.4**
+**Versão 0.1.5**
 
 Firmware em **ESP-IDF (C)** para um data logger usado em **ensaio de infiltração de água em gabinete**. A detecção de água se dá pela subida da **umidade absoluta / ponto de orvalho (Td)** do ar interno — grandezas que, ao contrário da umidade relativa, não dependem da temperatura.
 
@@ -70,6 +70,7 @@ Não apague o `dependencies.lock` depois disso, senão o gerenciador re-baixa e 
 
 ## Histórico
 
+- **v0.1.5** — Tela *Visualizar teste*: lista de logs em **ordem alfabética decrescente** (os mais recentes no topo, sem precisar rolar); **cabeçalho amarelo** com o **uso do microSD** (usado / total) lido do próprio cartão via `esp_vfs_fat_info` (fallback LittleFS `esp_littlefs_info`).
 - **v0.1.4** — Tela *Visualizar teste*: **tamanho de cada arquivo** (B/KB/MB) ao lado do nome na lista; **gráfico com as 4 grandezas** do log (Td verde, Temp vermelho e AH amarelo no eixo esquerdo autoescalado; UR azul no eixo direito).
 - **v0.1.3** — Tela de coleta: **contagem regressiva** do baseline (*capturando... N s*, com decremento suave a cada ~400 ms reancorado a cada amostra); label do baseline reposicionado ~5 mm à esquerda. Config restaurada para os **valores reais do ensaio** (amostragem **15 s**, baseline **180 s**).
 - **v0.1.2** — Ajustes na tela de coleta: título dinâmico (*Mostrando os dados online* / *Coletando os dados*); legendas das grandezas movidas para **abaixo** do eixo (`Td / Temp / AH` à esquerda, `UR` à direita) com baseline centralizado; botões *Marcar evento*/*Iniciar log* 25% mais estreitos; **alarme de infiltração reposicionado entre os dois botões e agora piscando** (~1 Hz: 0,7 s aceso / 0,3 s apagado); **gráfico é limpo ao iniciar um novo log**; grade do gráfico trocada por **linha pontilhada discreta**.
